@@ -7,12 +7,13 @@ import java.io.File;
 import java.io.IOException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 
 /**
  * Created by Sergii on 02.03.2017.
  */
 public class MainModule {
-    private TextAreaParser textAreaParser;
     //events
     private Listener<Integer> linkFoundListener;
     private Listener linkProcessedListener;
@@ -21,12 +22,83 @@ public class MainModule {
     private Listener imgProcessedListener;
     private Listener taskEndListener;
 
+    private class Handler {
+        private AtomicInteger linkFound = new AtomicInteger(0);
+        private AtomicInteger linkProcessed = new AtomicInteger(0);
+        private AtomicBoolean allRead = new AtomicBoolean(false);
+
+        private AtomicBoolean linkProcessingStoped = new AtomicBoolean(false);
+        private AtomicBoolean emptySource = new AtomicBoolean(false);
+        private AtomicInteger imgFound = new AtomicInteger(0);
+
+        private AtomicInteger imgProcessed = new AtomicInteger(0);
+
+        public final Listener linkFoundHandler = (sender, arg) -> {
+            linkFound.incrementAndGet();
+            checkListFinish();
+        };
+
+        public final Listener linkProcessedHandler = (sender, arg) -> {
+            linkProcessed.incrementAndGet();
+            checkListFinish();
+        };
+        public final Listener readingFinishedHandler = (sender, arg) -> {
+            allRead.set(true);
+            checkListFinish();
+        };
+
+        //images
+        public final Listener<Integer> imgFoundHandler = (sender, count) -> {
+            imgFound.getAndAdd(count);
+            checkImgFinish();
+        };
+
+        public final Listener imgProcessedHandler = (sender, arg) -> {
+            imgProcessed.incrementAndGet();
+            checkImgFinish();
+        };
+
+        public final Listener<Long> ImgLoadedHandler = (sender, size) -> {
+            checkImgFinish();
+        };
+        private Object locker = new Object();
+        private Object lockerChkImg = new Object();
+        private Object lockerChkLnk = new Object();
+
+        public final Listener emptySourceHandle = (sender, size) -> {
+            synchronized (locker) {
+                if (linkProcessingStoped.get())
+                    emptySource.set(true);
+            }
+        };
+
+        private void checkImgFinish() {
+            synchronized (lockerChkImg) {
+                if (linkProcessingStoped.get() && emptySource.get() && imgFound.get() == imgProcessed.get()) {
+                    MainModule.this.stopSecond();
+                }
+            }
+        }
+        private void checkListFinish() {
+            synchronized (lockerChkLnk) {
+                if (allRead.get() && linkFound.get() == linkProcessed.get()) {
+                    MainModule.this.stopFirst();
+                    linkProcessingStoped.set(true);
+                }
+            }
+        }
+
+    }
+
+    private Handler handler;
+
     public static class ModuleBuilder {
         private Listener<Integer> linkFoundListener;
         private Listener linkProcessedListener;
         private Listener<Long> imgLoadedSizeListener;
         private Listener<Integer> imgFoundListener;
         private Listener imgProcessedListener;
+
         private Listener taskEndListener;
 
         public ModuleBuilder setLinkFoundListener(Listener<Integer> linkFoundListener) {
@@ -58,15 +130,11 @@ public class MainModule {
             this.taskEndListener = taskEndListener;
             return this;
         }
-
         public MainModule build() {
             return new MainModule(this);
         }
-    }
 
-    private Handler handler;
-    private ExecutorService exec;
-    private ExecutorService exec2;
+    }
 
 
     private MainModule(ModuleBuilder builder) {
@@ -76,11 +144,12 @@ public class MainModule {
         imgFoundListener = builder.imgFoundListener;
         imgProcessedListener = builder.imgProcessedListener;
         taskEndListener = builder.taskEndListener;
-        handler = new Handler(this);
     }
 
     public void start(String textToParse, String textMachesAllowed, File folderToSave) throws IOException {
-        handler.reset();
+
+        handler = new Handler();
+
         TextAreaParser textAreaParser = new TextAreaParser(textToParse);
 
         textAreaParser.LinkFoundEvent.addEventListner(handler.linkFoundHandler);
@@ -103,23 +172,30 @@ public class MainModule {
         imgLoader.ImgProcessedEvent.addEventListner(handler.imgProcessedHandler);
         imgLoader.ImgProcessedEvent.addEventListner(imgProcessedListener);
 
-        exec = Executors.newFixedThreadPool(4);
-        exec.submit(textAreaParser);
-        for (int i = 0; i < 4; i++) {
-            exec.submit(htmlLoader);
-        }
+        t1 = new Thread(textAreaParser);
+        t1.start();
+        t2 = new Thread(htmlLoader);
+        t2.start();
+        t3 = new Thread(htmlLoader);
+        t3.start();
 
-        exec2 = Executors.newFixedThreadPool(2);
-        exec2.submit(imgExtractor);
-        exec2.submit(imgLoader);
+        ti1 = new Thread(imgExtractor);
+        ti1.start();
+        ti2 = new Thread(imgLoader);
+        ti2.start();
     }
 
+    Thread t1, t2, t3, ti1, ti2;
+
     public void stopFirst() {
-        exec.shutdownNow();
+        t1.interrupt();
+        t2.interrupt();
+        t3.interrupt();
     }
 
     public void stopSecond() {
-        exec2.shutdownNow();
+        ti1.interrupt();
+        ti2.interrupt();
         taskEndListener.eventHandler(this, null);
     }
 
@@ -129,87 +205,3 @@ public class MainModule {
     }
 }
 
-class Handler {
-    private MainModule controller;
-    private int linkFound;
-    private int linkProcessed;
-    private boolean allRead;
-    private boolean linkProcessingStoped;
-
-    private boolean emptySource;
-    private int imgFound;
-    private int imgProcessed;
-
-    public void reset() {
-        linkFound = linkProcessed = imgFound = imgProcessed = 0;
-        allRead = linkProcessingStoped = emptySource = false;
-        checkListFinish();
-        checkImgFinish();
-    }
-
-    public Handler(MainModule controller) {
-        this.controller = controller;
-    }
-
-    public final Listener linkFoundHandler = (sender, arg) -> {
-        Platform.runLater(() -> {
-            linkFound++;
-            checkListFinish();
-        });
-    };
-
-    public final Listener linkProcessedHandler = (sender, arg) -> {
-        Platform.runLater(() -> {
-            linkProcessed++;
-            checkListFinish();
-        });
-    };
-
-    public final Listener readingFinishedHandler = (sender, arg) -> {
-        Platform.runLater(() -> {
-            allRead = true;
-            checkListFinish();
-        });
-    };
-    //images
-    public final Listener<Integer> imgFoundHandler = (sender, count) -> {
-        Platform.runLater(() -> {
-            imgFound += count;
-            checkImgFinish();
-        });
-    };
-
-    public final Listener imgProcessedHandler = (sender, arg) -> {
-        Platform.runLater(() -> {
-            imgProcessed++;
-            checkImgFinish();
-        });
-    };
-
-    public final Listener<Long> ImgLoadedHandler = (sender, size) -> {
-        Platform.runLater(() -> {
-            checkImgFinish();
-        });
-    };
-
-    public final Listener emptySourceHandle = (sender, size) -> {
-        Platform.runLater(() -> {
-            if (linkProcessingStoped) {
-                emptySource = true;
-            }
-        });
-    };
-
-    private void checkImgFinish() {
-        if (linkProcessingStoped && emptySource && imgFound == imgProcessed) {
-            controller.stopSecond();
-        }
-    }
-
-    private void checkListFinish() {
-        if (allRead && linkFound == linkProcessed) {
-            controller.stopFirst();
-            this.linkProcessingStoped = true;
-        }
-    }
-}

@@ -15,15 +15,27 @@ import java.util.regex.Pattern;
 /**
  * Created by Sergii on 24.01.2017.
  */
-public class HtmlImgIterator extends HtmlIterable<URL> {
+public class HtmlImgIterator implements HtmlIterable<URL> {
+    protected URL resultUrl;
+    protected Predicate<String> filter = new ImgFilter();
+    protected BaseResolver baseResolver;
+    protected Matcher matcher;
+    protected URL baseUrl;
+    protected Pattern pattern = Pattern.compile("(?<=<img.{1,20}src[^\"]{1,4}\"\\s{0,3})[^\"]+|(?<=<a.{1,20}href[^\"]{1,4}\"\\s{0,3})[^\"]+");
     private Pattern kostili = Pattern.compile("/\\./|/\\.\\./");
 
-    public HtmlImgIterator() {
-        super.pattern = Pattern.compile("(?<=<img.{1,20}src[^\"]{1,4}\"\\s{0,3})[^\"]+|(?<=<a.{1,20}href[^\"]{1,4}\"\\s{0,3})[^\"]+");
-        super.filter = new ImgFilter();
+
+    public void setIn(Content in) throws MalformedURLException {
+        if (baseResolver == null) {
+            baseResolver = new BaseResolver();
+        }
+        matcher = pattern.matcher(in.content);
+        baseUrl = baseResolver.getBaseUrl(in);
     }
 
-    @Override
+    public HtmlImgIterator() {
+    }
+
     public void setAllowed(String allowed) {
         if (filter != null) {
             this.filter = new ContainStringFilter(allowed).and(filter);
@@ -47,5 +59,25 @@ public class HtmlImgIterator extends HtmlIterable<URL> {
             }
         } else
             return null;
+    }
+
+    @Override
+    public Iterator iterator() {
+        return new Iterator() {
+            @Override
+            public boolean hasNext() {
+                String resultStr = getMatches();
+                if (filter == null) {
+                    return resultStr != null;
+                } else {
+                    return resultStr != null && (filter.test(resultStr) || this.hasNext());
+                }
+            }
+
+            @Override
+            public URL next() {
+                return resultUrl;
+            }
+        };
     }
 }

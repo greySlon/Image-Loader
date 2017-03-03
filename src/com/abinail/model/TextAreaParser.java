@@ -32,7 +32,7 @@ public class TextAreaParser implements Runnable {
 
     private void read() throws IOException {
         BufferedReader reader = new BufferedReader(new StringReader(text));
-        while (true) {
+        while (!Thread.currentThread().isInterrupted()) {
             String str = reader.readLine();
             if (str != null) {
                 try {
