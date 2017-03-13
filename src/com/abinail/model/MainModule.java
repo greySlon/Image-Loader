@@ -1,7 +1,10 @@
 package com.abinail.model;
 
-import com.abinail.interfaces.Listener;
-import javafx.application.Platform;
+import com.odessa_flat.interfaces.Listener;
+import com.odessa_flat.model.HtmlLoader;
+import com.odessa_flat.model.ImgExtractor;
+import com.odessa_flat.model.ImgLoader;
+import com.odessa_flat.model.TextAreaParser;
 
 import java.io.File;
 import java.io.IOException;

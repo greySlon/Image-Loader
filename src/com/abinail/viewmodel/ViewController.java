@@ -3,7 +3,7 @@ package com.abinail.viewmodel;
 import com.abinail.model.MainModule;
 import com.abinail.model.MainModule.ModuleBuilder;
 
-import com.abinail.interfaces.Listener;
+import com.odessa_flat.interfaces.Listener;
 import javafx.application.Platform;
 import javafx.fxml.FXML;
 import javafx.scene.control.*;
